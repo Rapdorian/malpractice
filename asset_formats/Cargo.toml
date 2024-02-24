@@ -1,0 +1,22 @@
+[package]
+name = "asset_formats"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tencode"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bitflags = { version = "2.4.2" , features = ["bytemuck"]}
+clap = { version = "4.4.18", features = ["derive"] }
+image = "0.24.8"
+log = "0.4.20"
+bytemuck = { version = "1.14.2" , features = ["derive"]}
+env_logger = "0.11.1"
+bilge = "0.2.0"
+linreg = "0.2.0"
+hsl = "0.1.1"
+num-traits = "0.2.17"
+glam = "0.25.0"
