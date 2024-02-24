@@ -1,3 +1,4 @@
 /target
-/examples
+/examples/*
+!/examples/flappy_bird
 .idea
