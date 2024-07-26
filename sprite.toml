@@ -1,0 +1,19 @@
+path = "foo.jpg"
+
+[sprites.foo]
+x = 500
+y = 500
+width = 100
+height = 100
+
+[sprites.bar]
+x = 500
+y = 700
+width = 100
+height = 100
+
+[sprites.whole]
+x = 0
+y = 0
+width = 1406
+height = 1988

@@ -1,4 +1,5 @@
 //! Platform specific window handling.
+//! I absolutely HATE this api. It needs to be redone
 
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
@@ -9,12 +10,12 @@ use winit::event_loop::EventLoopWindowTarget;
 use winit::window::{WindowBuilder, WindowId};
 
 #[derive(Debug, Clone)]
-struct WindowRequest {
+pub(crate) struct WindowRequest {
     title: String,
 }
 
 #[derive(Debug)]
-enum WindowInner {
+pub(crate) enum WindowInner {
     Request(WindowRequest),
     Backed(winit::window::Window),
     Closed,
@@ -81,6 +82,10 @@ impl Window {
         } else {
             None
         }
+    }
+
+    pub(crate) fn inner(&self) -> std::sync::MutexGuard<'_, WindowInner> {
+        self.inner.lock().unwrap()
     }
 
     pub fn back(&self, target: &EventLoopWindowTarget<()>) {

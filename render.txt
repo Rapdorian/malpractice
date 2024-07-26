@@ -1,0 +1,11 @@
+Ok, so the render abstraction I wrote really isn't sufficient for handling wgpu.
+So, I'll need to either adjust it or come up with a different abstraction.
+I'm thinking a different abstraction will be best.
+
+I think writing an easy to use core rendering abstraction is probably not actually
+ideal long term.
+For instance I really want a more mature data/scenegraph implementation that I'll treat
+as the actual main API for this engine.
+The renderer should probably just be a system that runs on that scenegraph.
+
+So maybe our game engine should focus on that for a while.

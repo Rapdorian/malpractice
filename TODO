@@ -1,0 +1,19 @@
+- Handle Game loop
+	- Interpolated render states
+	- Engine Stage for per-window engine state
+
+	- We maybe shouldn't have a hard requirement on using a window
+		- In theory it would be cool to support TUI games.
+		- I won't put much effort into that though
+- Handle a 2d Camera
+	- Resizing the window
+- Egui integration
+- Tooling
+	- SpriteMap maker UI
+	- Tiled map editor UI
+- Example Game
+	- Small RPG
+	- Pokemon style graphics
+	- (eventually) pseudo 3d (diamond&pearl style)
+- Tcl integration
+	- Load world from file

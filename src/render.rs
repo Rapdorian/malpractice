@@ -1,99 +1,454 @@
-//! This module should provide some basic types that are backend agnostic so we can add our own
-//! rendering backends as submodules. Ideally we want this to be generic enough that we could implement
-//! a console backend
-//!
-//! Ok, so now we need to be able to determine what this rendering API is responsible for.
-//! - render is NOT responsible for handling scene graph
-//! - render SHOULD be capable of handling 2d graphics
-//! - render SHOULD be able to handle egui
-//! - render should NOT have integration with egui
-//!
-//! At a high level there are a handful of objects we need to be able to render
-//! - Meshes
-//! - Textures
-//! - Lights
-//! - Sprites ( a subset of mesh + texture)
-//! - Material
-//!
-//! We need to load the renderer with a list of objects and a camera and output surface and it should
-//! be able to render.
-//!
-//! the renderer should be smart enough to do at least some culling
+// impl2
+mod context;
+mod state;
+mod timestamp;
+mod vertex;
+//mod components;
 
-pub mod grr;
-mod texture;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
-pub use texture::*;
+use once_cell::sync::OnceCell;
 
-use bytemuck::{Pod, Zeroable};
-use glam::Mat4;
-use mint;
-use mint::ColumnMatrix4;
+pub use context::*;
+pub use vertex::*;
+use wgpu::{
+    util::{DeviceExt, RenderEncoder},
+    BufferUsages, ShaderStages,
+};
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Vertex<T> {
-    pub pos: mint::Vector3<T>,
-    pub uv: mint::Vector2<T>,
-    pub normal: mint::Vector3<T>,
+pub use state::*;
+pub use timestamp::*;
+
+use crate::components::Transform;
+//pub use components::*;
+
+pub struct Frame<'a> {
+    surface: &'a Surface,
+    output: wgpu::SurfaceTexture,
+    output_view: wgpu::TextureView,
+    encoder: wgpu::CommandEncoder,
+    format: wgpu::TextureFormat,
 }
 
-unsafe impl<T> Zeroable for Vertex<T> where T: Zeroable {}
-
-unsafe impl<T> Pod for Vertex<T> where T: Pod {}
-
-pub struct Material<T> {
-    pub diffuse: T,
-}
-
-pub struct Camera<T> {
-    pub transform: ColumnMatrix4<T>,
-}
-
-pub enum Light<T> {
-    Point {
-        pos: mint::Vector3<T>,
-        color: mint::Vector3<T>,
-    },
-    Directional {
-        dir: mint::Vector3<T>,
-        color: mint::Vector3<T>,
-    },
-}
-
-pub trait Renderer<T> {
-    type MeshHandle: GpuResource;
-    type BufferHandle: GpuResource;
-    type SpriteHandle: GpuResource;
-    type Surface;
-
-    fn upload_mesh(&mut self, verts: &[Vertex<T>], indices: &[u16]) -> Self::MeshHandle;
-    fn upload_buffer(&mut self, data: &[u8]) -> Self::BufferHandle;
-
-    /// Upload an image to the GPU
-    fn upload_sprite(&mut self, tex: &Texture) -> Self::SpriteHandle;
-
-    // need to include a transform here
-    fn draw_mesh(&mut self, mesh: &Self::MeshHandle, material: Material<Self::BufferHandle>);
-    fn draw_sprite(&mut self, sprite: &Self::SpriteHandle, transform: mint::ColumnMatrix4<T>);
-    fn draw_light(&mut self, light: Light<T>);
-
-    fn clear(&mut self, surface: &mut Self::Surface);
-    fn render(&mut self, camera: Camera<T>, surface: &mut Self::Surface);
-    fn finish(&mut self);
-}
-
-pub trait GpuResource {
-    fn label<S: AsRef<str>>(&mut self, s: S);
-    fn with_label<S: AsRef<str>>(mut self, s: S) -> Self
-    where
-        Self: Sized,
-    {
-        self.label(s);
-        self
+impl Surface {
+    pub fn next_frame(&self, interp: f32) -> Frame {
+        let output = self.surface.get_current_texture().unwrap();
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
+        let format = self.surface.get_capabilities(&self.adapter).formats[0];
+        self.state.lock().unwrap().set_timestamp(interp);
+        Frame {
+            surface: self,
+            output,
+            output_view: view,
+            encoder,
+            format,
+        }
     }
 }
 
-// we'll need to initialize a window somehow
-// We'll need a way to tie said window init into the input module and a window control module
-// Using a static would work. but IDK if that's really what I want to do.
+impl<'a> Frame<'a> {
+    /// This method should allow drawing a renderpass that is
+    /// created by an external or internal user.
+    pub fn draw(
+        mut self,
+        f: impl FnOnce(
+            &wgpu::Device,
+            &mut wgpu::CommandEncoder,
+            &wgpu::TextureView,
+            wgpu::TextureFormat,
+            &Mutex<RenderState<u32, mint::Vector3<f32>>>,
+        ),
+    ) -> Frame<'a> {
+        (f)(
+            &self.surface.device,
+            &mut self.encoder,
+            &self.output_view,
+            self.format,
+            &self.surface.state,
+        );
+        self
+    }
+
+    /// Finish drawing this frame
+    pub fn submit(self) {
+        // submit will accept anything that implements IntoIter
+        self.surface
+            .queue
+            .submit(std::iter::once(self.encoder.finish()));
+        self.output.present();
+    }
+
+    pub fn draw_sprites<'w>(
+        self,
+        sprites: impl Iterator<Item = (u32, (&'w Sprite, &'w Transform))>,
+        camera: Transform,
+    ) -> Self {
+        let sampler = self.surface.sampler();
+        self.draw(|device, enc, out, format, state| {
+            // create a sprite pipeline
+            static PIPELINE: OnceCell<(
+                wgpu::PipelineLayout,
+                wgpu::RenderPipeline,
+                wgpu::BindGroupLayout,
+            )> = OnceCell::new();
+            let (pipeline_layout, pipeline, bg_layout) = PIPELINE.get_or_init(|| {
+                log::info!("Initializing sprite pipeline");
+                let shader = load_shader(
+                    device,
+                    r#"
+
+                        struct VertexOutput {
+                            @builtin(position) pos: vec4<f32>,
+                            @location(0) uv: vec2<f32>,
+                        }
+
+                        @vertex
+                        fn vs_main(
+                                @location(0) mat_0: vec4<f32>,
+                                @location(1) mat_1: vec4<f32>,
+                                @location(2) mat_2: vec4<f32>,
+                                @location(3) mat_3: vec4<f32>,
+                                @location(4) uv_offset: vec2<f32>,
+                                @location(5) uv_size: vec2<f32>,
+                                @location(6) texture: u32,
+                                @builtin(vertex_index) idx: u32
+                            ) -> VertexOutput {
+
+                            let a = i32(idx) & 1;
+                            let b = ((i32(idx) & 2) >> 1);
+                            let c = ((i32(idx) & 4) >> 2);
+
+                            let x = f32(b + ((~a) & c));
+                            let y = f32(a);
+                            let pos = vec2<f32>(x,y);
+
+                            let trans = mat4x4<f32>(
+                                mat_0,
+                                mat_1,
+                                mat_2,
+                                mat_3
+                            );
+                            
+                            var out: VertexOutput;
+                            out.pos = trans * vec4<f32>(pos.xy, 0.0, 1.0);
+                            out.uv = (pos * uv_size) + uv_offset;
+                            out.uv.y = 1.0-out.uv.y;
+                            return out;
+                        }
+
+                        @group(0) @binding(0)
+                        var atlas: texture_2d<f32>;
+                        @group(0) @binding(1)
+                        var samplr: sampler;
+
+                        @fragment
+                        fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+                            return textureSample(atlas, samplr, in.uv);
+                        }
+                    "#,
+                );
+
+                // create instance buffer desc
+                let sprite_buffer = wgpu::VertexBufferLayout {
+                    array_stride: 4 * 16 + 4 * 2 + 4 * 2 + 4,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Float32x4,
+                        1 => Float32x4,
+                        2 => Float32x4,
+                        3 => Float32x4,
+                        4 => Float32x2,
+                        5 => Float32x2 ,
+                        6 => Uint32,
+                    ],
+                };
+
+                let bg_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                            count: None,
+                        },
+                    ],
+                });
+
+                let pipeline_layout =
+                    device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[&bg_layout],
+                        push_constant_ranges: &[],
+                    });
+                let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: None,
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: "vs_main",
+                        compilation_options: Default::default(),
+                        buffers: &[sprite_buffer],
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: "fs_main",
+                        compilation_options: Default::default(),
+                        targets: &[Some(format.into())],
+                    }),
+                    multiview: None,
+                    cache: None,
+                });
+                (pipeline_layout, pipeline, bg_layout)
+            });
+
+            // create instance buffers
+            let mut textures = Vec::new();
+            let mut texture_lookup = HashMap::new();
+            let mut instance_count = 0;
+            for (id, (sprite, transform)) in sprites {
+                instance_count += 1;
+                let t_id = sprite.texture.texture.global_id();
+                let idx = *texture_lookup.entry(t_id).or_insert_with(|| {
+                    textures.push((Arc::clone(&sprite.texture), Vec::new()));
+                    textures.len() - 1
+                });
+                let instance_buffer = &mut textures[idx].1;
+
+                // write into instance buffer
+                // Buffer format:
+                // transform: mat4x4
+                // uv_offset: vec2
+                // uv_size: vec2
+                // texture: u32
+                // handle render state interpolation
+                let mut transform = transform.clone();
+                transform.position = {
+                    let mut state = state.lock().unwrap();
+                    if state.get(&id).is_none() {
+                        state.store(
+                            id,
+                            mint::Vector3 {
+                                x: transform.position.x,
+                                y: transform.position.y,
+                                z: transform.position.z,
+                            },
+                        );
+                    }
+                    let prev = glam::Vec3::from(state[id]);
+                    let cur = glam::Vec3::from(transform.position);
+                    let time = state.timestamp();
+                    // write back into state
+                    let lerped = prev.lerp(cur, time as f32);
+                    state.store(id, lerped.into());
+                    lerped.into()
+                };
+
+                let mat: mint::ColumnMatrix4<f32> = transform.into();
+                let mat: glam::Mat4 = mat.into();
+
+                // get sprite shape
+                let width = sprite.texture.width as f32 * sprite.rect.width;
+                let height = sprite.texture.height as f32 * sprite.rect.height;
+                let sprite_mat = glam::Mat4::from_scale(glam::Vec3::new(width, height, 1.0));
+                let camera: glam::Mat4 = camera.into();
+
+                let mat = camera * mat * sprite_mat;
+
+                instance_buffer.extend_from_slice(bytemuck::bytes_of(&mat));
+                instance_buffer.extend_from_slice(bytemuck::bytes_of(&sprite.rect));
+                instance_buffer.extend_from_slice(bytemuck::bytes_of(&(idx as u32)));
+            }
+
+            //render pass
+            let mut rpass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: out,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            rpass.set_pipeline(pipeline);
+
+            for (texture, buffer) in textures {
+                let sprite_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: None,
+                    contents: &buffer,
+                    usage: BufferUsages::VERTEX,
+                });
+
+                let atlas = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: bg_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&texture.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                    ],
+                });
+                let sprite_count = buffer.len() as u32 / (4 * 16 + 4 * 4 + 4);
+                rpass.set_bind_group(0, &atlas, &[]);
+                rpass.set_vertex_buffer(0, sprite_buffer.slice(..));
+                rpass.draw(0..6, 0..sprite_count);
+            }
+        })
+    }
+
+    pub fn draw_sprites_from_world(self, world: &hecs::World, camera: Transform) -> Self {
+        self.draw_sprites(
+            world
+                .query::<(&Sprite, &Transform)>()
+                .iter()
+                .map(|(e, c)| (e.id(), c)),
+            camera,
+        )
+    }
+
+    pub fn draw_mesh(self, mesh: &Mesh) -> Frame<'a> {
+        self.draw(|device, enc, out, format, _| {
+            // declare static pipeline info
+            static PIPELINE: OnceCell<(wgpu::PipelineLayout, wgpu::RenderPipeline)> =
+                OnceCell::new();
+            let (pipeline_layout, pipeline) = PIPELINE.get_or_init(|| {
+                log::info!("Initializing mesh pipeline");
+                let shader = load_shader(
+                    device,
+                    r#"
+                        @vertex
+                        fn vs_main(
+                            //@location(0) pos:  vec3<f32>,
+                            //@location(1) uv:   vec2<f32>,
+                            //@location(2) norm: vec3<f32>
+                            @builtin(vertex_index) idx: u32
+                            ) -> @builtin(position) vec4<f32> {
+                            let x = f32(i32(idx) -1);
+                            let y = f32(i32(idx & 1u) * 2 - 1);
+                            return vec4<f32>(x,y, 0.0, 1.0);
+                        }
+
+                        @fragment
+                        fn fs_main() -> @location(0) vec4<f32> {
+                            return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+                        }
+
+                    "#,
+                );
+                let pipeline_layout =
+                    device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[],
+                        push_constant_ranges: &[],
+                    });
+                let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: None,
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: "vs_main",
+                        compilation_options: Default::default(),
+                        buffers: &[Vertex::desc()],
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: "fs_main",
+                        compilation_options: Default::default(),
+                        targets: &[Some(format.into())],
+                    }),
+                    multiview: None,
+                    cache: None,
+                });
+                (pipeline_layout, pipeline)
+            });
+            // now render
+            let mut rpass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: out,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            rpass.set_pipeline(pipeline);
+            rpass.set_vertex_buffer(0, mesh.verts.slice(..));
+            rpass.draw(0..3, 0..1);
+        })
+    }
+
+    // we need a system that can be run on a hecs world that will fetch renderables and draw them
+    // for now lets just do a simple clear screen routine.
+    pub fn clear_screen(self, r: f32, g: f32, b: f32) -> Frame<'a> {
+        self.draw(|_, enc, out, _, _| {
+            enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: out,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: r as f64,
+                            g: g as f64,
+                            b: b as f64,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+        })
+    }
+}
+
+fn load_shader(device: &wgpu::Device, shader: &str) -> wgpu::ShaderModule {
+    device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(shader)),
+    })
+}

@@ -1,0 +1,73 @@
+I think it'd be neat to play with using async in the engine core.
+
+I think it could be an interesting way of handling various behaviours.
+I wonder if we could handle input that way.
+
+while it would be very good for scripting behavours example:
+
+let handle_a = spawn(async {
+	npc.walk_to(location).await
+	npc.say(message).await
+})
+let handle_b = spawn(async {
+	other_npc.walk_to(other_location).await
+})
+
+handle_a.await
+other_npc.say(response);
+
+We'd need to be careful what the lowest level behaviours are using the async syntax.
+I'm not sure if input is great or awful with async
+
+spawn(async {
+	loop {
+		wait_physics_tick().await;
+		pos.y -= 0.1;
+	}
+})
+
+spawn(async {
+	loop {
+		keydown('space').await;
+		pos.y += 0.5;
+	}
+})
+
+spawn(async {
+	loop {
+		// how to handle key combos?
+		if let Ok(_) = timeout(20ms, join!(keydown('space'), keydown('shift'))).await {
+			pos.y += 0.5 * 2.0
+		}
+	}
+})
+
+After playing with this input system I think I like it WAY too much. It actually could allow for simple composable inputs. The only downside is that there will end up being a lot of small ongoing tasks. These tasks are actually kinda similar to an ECS system. They could maybe even
+by structured a bit more like an ECS system. However I think that is also intended to be the strength of async/await.
+So I'll just need to implement a executor inside the engine.
+Somethings probably shouldn't exist in the async system though, for example the renderer probably shouldn't use async. Similar to the scenegraph, really any internal engine components shouldn't use async internally, but they may expose part of their API as async. For instance asset loading could be handled in an async manner.
+
+
+// setup a loading screen
+for asset in asset_list {
+	assets.load(asset).await;
+	load_progress += 1;
+}
+load_scene(next)
+
+This could provide a fairly compact way to draw a loading scene. It simplifies having to poll everybody. We could also spawn off a task for each asset and await the full set in a similar way and have the same behaviour but a bit faster.
+
+really the core concept here is the engine exposing it's behaviour as futures and we could probably use an off the shelf executor.
+
+I have also already decided that I like using a scene system for organizing different parts of a game. So I'll have to incorporate that as well.
+
+a lot of what I am writing here is more the domain of a scripting language though.
+so maybe that's what I really need is just a language for scripting content events. I still like the idea of using Tcl for that.
+
+move other_npc other_location
+block move npc location
+block say npc message
+say other_npc response
+
+This could be the same script in a Tcl-like language we could embedd scripts like this into map data. And more reusable content like how these commands work could be handled in rust
+I'm not sure that await/block syntax is the best.

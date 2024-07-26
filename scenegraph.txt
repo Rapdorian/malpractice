@@ -1,0 +1,29 @@
+Ok, I want to design a useful gameworld abstraction.
+It should support at least deserialization from probably a toml format.
+as much data about the gameworld should be queryable.
+
+I'd like to be able to make a query like
+
+```
+let ent = world.near(position).next();
+println!("{}", ent["Field name"]);
+```
+
+Basically I want to be able to make spatial queries into the world and get back
+and entity which I can query for arbitrary fields, (useful for scripting).
+There should be a way to get more strongly typed fields out of the world as well.
+
+World entities should also have ids that they can be queried on.
+
+```
+let a = world.insert(entity);
+world[a]["Field name"];
+```
+
+These ids should be configurable in the serde format so that scripts can synthesize them
+
+I am unsure of how I want to organize my world objects. There are fields I need the engine to be aware of. The fields will also vary by which game systems are interacting with the object. ECS seems like it may be a good fit actually.
+However I don't love how much control an ECS takes away. I may end up using hecs. It provides the data structure without a lot of the framework baggage that something like legion has.
+I might not actually expose the ECS and only use it internally to manage the world.
+
+so by default adding an entity to the world will only include the user component and any engine components can be added with a builder like method.
