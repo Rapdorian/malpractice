@@ -4,8 +4,6 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 
 use crate::assets;
-pub use dirs;
-use crate::assets::android::AndroidManager;
 use crate::assets::fs::FsManager;
 
 fn fs_data_manager() -> FsManager {
@@ -39,5 +37,6 @@ pub fn os_asset_manager() -> impl AssetManager {
 
 #[cfg(target_os = "android")]
 pub fn os_asset_manager() -> impl AssetManager {
+    use crate::assets::android::AndroidManager;
     AndroidManager::new()
 }

@@ -14,6 +14,8 @@ pub mod assets {
     mod asset_manager;
     pub use asset_manager::*;
     pub(crate) mod fs;
+
+    #[cfg(target_os = "android")]
     pub(crate) mod android;
     pub mod platform;
 }

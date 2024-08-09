@@ -35,7 +35,8 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowId},
 };
-use crate::assets::android::ANDROID_APP;
+
+
 
 pub struct ActiveRivik<'a, A: Action> {
     rivik: &'a mut Rivik<A>,
@@ -104,6 +105,8 @@ impl<A: Action> Rivik<A> {
         app: winit::platform::android::activity::AndroidApp,
     ) {
         use winit::platform::android::EventLoopBuilderExtAndroid;
+        use crate::assets::android::ANDROID_APP;
+
         ANDROID_APP.set(app.clone()).unwrap();
         let mut rivik = Rivik::new();
         let event_loop = EventLoopBuilder::default()
