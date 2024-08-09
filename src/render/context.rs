@@ -1,20 +1,20 @@
 // Create a rendering context with WGPU
 // some of these cane be made static to simplify
 
+use egui_winit::egui::{ClippedPrimitive, FullOutput, TexturesDelta};
+use image::{EncodableLayout, GenericImageView};
+use once_cell::sync::{self, Lazy, OnceCell};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, Weak},
 };
-
-use image::{EncodableLayout, GenericImageView};
-use once_cell::sync::{self, Lazy, OnceCell};
-use serde::{Deserialize, Serialize};
 use wgpu::{
     util::{DeviceExt, TextureDataOrder},
     BufferUsages, TextureUsages,
 };
 
-use super::{Vertex, RenderState};
+use super::{RenderState, Vertex};
 
 pub struct Surface {
     pub adapter: wgpu::Adapter,
@@ -22,7 +22,10 @@ pub struct Surface {
     pub queue: wgpu::Queue,
     pub instance: wgpu::Instance,
     pub surface: wgpu::Surface<'static>,
-    pub state: Mutex<RenderState<u32, mint::Vector3<f32>>>
+    pub state: Mutex<RenderState<u32, mint::Vector3<f32>>>,
+    pub format: wgpu::TextureFormat,
+    pub ui_output: Option<(Vec<ClippedPrimitive>, TexturesDelta)>,
+    pub dimensions: [u32; 2],
 }
 
 pub struct Texture {
@@ -85,17 +88,27 @@ fn lookup_asset<T>(cache: &AssetCache<T>, id: &str) -> Option<Arc<T>> {
 }
 
 impl Surface {
+    pub(crate) fn set_ui(
+        &mut self,
+        clipped_primitive: Vec<ClippedPrimitive>,
+        textures_delta: TexturesDelta,
+    ) {
+        self.ui_output = Some((clipped_primitive, textures_delta));
+    }
+
     pub fn texture_format(&self) -> wgpu::TextureFormat {
         self.surface.get_capabilities(&self.adapter).formats[0]
     }
 
     pub fn sampler(&self) -> Arc<wgpu::Sampler> {
         static SAMPLER: OnceCell<Arc<wgpu::Sampler>> = OnceCell::new();
-        SAMPLER.get_or_init(|| {
-            Arc::new(self.device.create_sampler(&wgpu::SamplerDescriptor {
-                ..Default::default()
-            }))
-        }).clone()
+        SAMPLER
+            .get_or_init(|| {
+                Arc::new(self.device.create_sampler(&wgpu::SamplerDescriptor {
+                    ..Default::default()
+                }))
+            })
+            .clone()
     }
 
     pub fn load_sprite(&self, path: &str, fragment: &str) -> Sprite {
@@ -237,10 +250,14 @@ impl Surface {
                 .unwrap();
 
             let size = win.inner_size();
-            let config = surface
-                .get_default_config(&adapter, size.width, size.height)
-                .unwrap();
+            let config = wgpu::SurfaceConfiguration {
+                present_mode: wgpu::PresentMode::AutoVsync,
+                ..surface
+                    .get_default_config(&adapter, size.width, size.height)
+                    .unwrap()
+            };
             surface.configure(&device, &config);
+            let format = surface.get_capabilities(&adapter).formats[0];
             Surface {
                 adapter,
                 device,
@@ -248,6 +265,9 @@ impl Surface {
                 surface,
                 instance,
                 state: Mutex::new(RenderState::new(0.0)),
+                format,
+                ui_output: None,
+                dimensions: [size.width, size.height],
             }
         })
     }

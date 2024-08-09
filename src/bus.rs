@@ -48,6 +48,9 @@ impl<T: Copy + fmt::Debug> MessageBus<T> {
     }
 
     pub fn clean(&self) {
-        self.subscribers.lock().unwrap().retain(|s| s.upgrade().is_some());
+        self.subscribers
+            .lock()
+            .unwrap()
+            .retain(|s| s.upgrade().is_some());
     }
 }

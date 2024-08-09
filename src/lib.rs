@@ -3,11 +3,12 @@
 //! First lets start with some basic windowing and a renderer.
 //! we also need a decent logging framework
 
-pub mod render;
-pub mod components;
 pub mod app;
-pub mod input;
+pub mod bench;
 pub mod bus;
+pub mod components;
+pub mod input;
+pub mod render;
 
 pub use app::*;
 //pub mod window;
@@ -46,17 +47,17 @@ pub mod world;
 // use winit::event_loop::{EventLoop, EventLoopWindowTarget};
 // use winit::keyboard::KeyCode::Insert;
 // use winit::keyboard::{KeyCode, PhysicalKey};
-// 
+//
 // pub trait Scene {
 //     fn update(
 //         self: Box<Self>,
 //         ctx: &mut EngineContext,
 //     ) -> Result<Box<dyn Scene>, Box<dyn std::error::Error>>;
 //     fn render(&mut self) {}
-// 
+//
 //     fn span(&self) -> Span;
 // }
-// 
+//
 // impl<F> Scene for F
 // where
 //     F: FnMut(&mut EngineContext) -> Result<Option<Box<dyn Scene>>, Box<dyn std::error::Error>>
@@ -72,26 +73,26 @@ pub mod world;
 //             Err(e) => Err(e),
 //         }
 //     }
-// 
+//
 //     fn span(&self) -> Span {
 //         debug_span!("Simple Scene")
 //     }
 // }
-// 
+//
 // thread_local! { static EXECUTOR: LocalExecutor<'static> = LocalExecutor::new()}
 // pub fn spawn<T: 'static>(f: impl Future<Output = T> + 'static) -> Task<T> {
 //     EXECUTOR.with(|ex| ex.spawn(f))
 // }
-// 
+//
 // pub fn block_on<T>(future: impl Future<Output = T>) -> T {
 //     EXECUTOR.with(|ex| futures::executor::block_on(ex.run(future)))
 // }
-// 
+//
 // pub struct EngineContext {
 //     pub keys: Keys,
 //     pub config: Config,
 // }
-// 
+//
 // impl EngineContext {
 //     fn new() -> Self {
 //         Self {
@@ -100,26 +101,26 @@ pub mod world;
 //         }
 //     }
 // }
-// 
+//
 // /// main engine entrypoint
 // /// call this method to start the engine
 // pub fn run<A: Scene>(app: A) {
 //     // TODO: improve this API surface.
 //     let event_loop = EventLoop::new().unwrap();
 //     let mut context = EngineContext::new();
-// 
+//
 //     // un-simulated time
 //     let mut t = Duration::new(0, 0);
 //     let mut last_frame_time = Instant::now();
 //     let mut scene: Cell<Option<Box<dyn Scene>>> = Cell::new(Some(Box::new(app)));
-// 
+//
 //     // spwan a thread to redraw all windows.
 //     let framerate = context.config.framerate.duration();
 //     thread::spawn(move || loop {
 //         Window::redraw_all();
 //         thread::sleep(framerate);
 //     });
-// 
+//
 //     event_loop
 //         .run(move |event, event_loop| {
 //             // handle window creation.
@@ -128,7 +129,7 @@ pub mod world;
 //                 req.back(event_loop);
 //             }
 //             WINDOW_QUEUE.lock().unwrap().clear();
-// 
+//
 //             if let Event::WindowEvent {
 //                 window_id,
 //                 event: WindowEvent::CloseRequested,
@@ -140,7 +141,7 @@ pub mod world;
 //             if Window::open_window_count() == 0 {
 //                 event_loop.exit()
 //             }
-// 
+//
 //             match event {
 //                 Event::NewEvents(_) => {}
 //                 Event::WindowEvent { window_id, event } => match event {
@@ -191,7 +192,7 @@ pub mod world;
 //                             let _span = span.enter();
 //                             s.render();
 //                         }
-// 
+//
 //                         t += context.config.framerate.duration();
 //                         while t >= context.config.physics_step.duration() {
 //                             let s = scene.take().expect("scene should exist");
@@ -209,7 +210,7 @@ pub mod world;
 //                                 }
 //                             }
 //                         }
-// 
+//
 //                         context.keys.tick();
 //                     }
 //                 },

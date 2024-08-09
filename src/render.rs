@@ -5,23 +5,23 @@ mod timestamp;
 mod vertex;
 //mod components;
 
+pub use context::*;
+use egui_wgpu::ScreenDescriptor;
+use egui_winit::egui::{ClippedPrimitive, FullOutput, TexturesDelta};
+use once_cell::sync::{Lazy, OnceCell};
 use std::{
     collections::HashMap,
+    mem,
     sync::{Arc, Mutex},
 };
-
-use once_cell::sync::OnceCell;
-
-pub use context::*;
+use std::time::Instant;
+use tracing_subscriber::fmt::format::Full;
 pub use vertex::*;
-use wgpu::{
-    util::{DeviceExt, RenderEncoder},
-    BufferUsages, ShaderStages,
-};
+use wgpu::{util::{DeviceExt, RenderEncoder}, BufferUsages, ShaderStages, StoreOp, PresentationTimestamp};
 
 pub use state::*;
 pub use timestamp::*;
-
+use crate::bench::{Span, start};
 use crate::components::Transform;
 //pub use components::*;
 
@@ -35,7 +35,21 @@ pub struct Frame<'a> {
 
 impl Surface {
     pub fn next_frame(&self, interp: f32) -> Frame {
+        static FPS_TIMER: Lazy<Mutex<f32>> = Lazy::new(|| Mutex::new(1.0));
+        static PREV_FRAME: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
+
+        // record this frame's time
+        if let Some(prev) = *PREV_FRAME.lock().unwrap() {
+            const ALPHA: f32 = 0.05;
+            let t = prev.elapsed().as_nanos();
+            let mut timer = FPS_TIMER.lock().unwrap();
+            *timer = ((t as f32 - *timer) * ALPHA) + *timer;
+            crate::bench::raw_section("avg time", *timer as u128);
+        }
+
         let output = self.surface.get_current_texture().unwrap();
+        *PREV_FRAME.lock().unwrap() = Some(Instant::now());
+
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -44,14 +58,17 @@ impl Surface {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
-        let format = self.surface.get_capabilities(&self.adapter).formats[0];
         self.state.lock().unwrap().set_timestamp(interp);
+
+        // record the time for the start of this frame
+
+
         Frame {
             surface: self,
             output,
             output_view: view,
             encoder,
-            format,
+            format: self.format,
         }
     }
 }
@@ -80,12 +97,55 @@ impl<'a> Frame<'a> {
     }
 
     /// Finish drawing this frame
-    pub fn submit(self) {
+    pub fn submit(mut self) {
         // submit will accept anything that implements IntoIter
+        if let Some(ui) = &self.surface.ui_output {
+            self = self.draw_egui(ui);
+        }
         self.surface
             .queue
             .submit(std::iter::once(self.encoder.finish()));
         self.output.present();
+    }
+
+    pub fn draw_egui(mut self, ui: &(Vec<ClippedPrimitive>, TexturesDelta)) -> Self {
+        let queue = &self.surface.queue;
+        let desc = ScreenDescriptor {
+            size_in_pixels: self.surface.dimensions.clone(),
+            pixels_per_point: 1.0,
+        };
+        self.draw(|device, enc, out, format, state| {
+            static UI_RENDER: OnceCell<Mutex<egui_wgpu::Renderer>> = OnceCell::new();
+            let mut ui_render = UI_RENDER
+                .get_or_init(|| {
+                    Mutex::new(egui_wgpu::Renderer::new(&device, format, None, 1, false))
+                })
+                .lock()
+                .unwrap();
+            for (id, img_delta) in &ui.1.set {
+                ui_render.update_texture(device, queue, *id, img_delta);
+            }
+            ui_render.update_buffers(device, queue, enc, &ui.0, &desc);
+            let mut rpass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("egui render pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: out,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            ui_render.render(&mut rpass, &ui.0, &desc);
+            mem::drop(rpass);
+            for x in &ui.1.free {
+                ui_render.free_texture(x);
+            }
+        })
     }
 
     pub fn draw_sprites<'w>(
@@ -93,6 +153,7 @@ impl<'a> Frame<'a> {
         sprites: impl Iterator<Item = (u32, (&'w Sprite, &'w Transform))>,
         camera: Transform,
     ) -> Self {
+        let _bench = crate::bench::start("sprite-pass");
         let sampler = self.surface.sampler();
         self.draw(|device, enc, out, format, state| {
             // create a sprite pipeline

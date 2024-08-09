@@ -1,5 +1,5 @@
-use std::{cmp, ops};
 use super::TimeStamp;
+use std::{cmp, ops};
 
 /// Store render state that needs to be tracked between frames
 pub struct RenderState<Id, Data> {
@@ -11,7 +11,6 @@ impl<Id, Data> RenderState<Id, Data>
 where
     Id: cmp::Ord + Clone,
 {
-
     pub(crate) fn new(timestep: f32) -> Self {
         Self {
             timestamp: TimeStamp::new(timestep as f64),
@@ -69,12 +68,13 @@ where
     }
 }
 
-impl<Id, Data> ops::IndexMut<&Id> for RenderState<Id, Data> where Id: cmp::Ord + Clone,
+impl<Id, Data> ops::IndexMut<&Id> for RenderState<Id, Data>
+where
+    Id: cmp::Ord + Clone,
 {
     fn index_mut(&mut self, index: &Id) -> &mut Self::Output {
         self.get_mut(index).expect("Failed to find render state")
     }
-
 }
 
 impl<Id, Data> ops::Index<Id> for RenderState<Id, Data>
@@ -88,10 +88,11 @@ where
     }
 }
 
-impl<Id, Data> ops::IndexMut<Id> for RenderState<Id, Data> where Id: cmp::Ord + Clone,
+impl<Id, Data> ops::IndexMut<Id> for RenderState<Id, Data>
+where
+    Id: cmp::Ord + Clone,
 {
     fn index_mut(&mut self, index: Id) -> &mut Self::Output {
         self.get_mut(&index).expect("Failed to find render state")
     }
-
 }

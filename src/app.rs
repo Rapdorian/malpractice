@@ -1,34 +1,74 @@
 //! Application lifecycle management.
 
-mod controller;
-mod stage;
+// ok, brainstorm time.
+// we need to store a decent amount of per stage/window data at the engine level.
+// so we need to support that cleaner.
 
-pub use controller::*;
+// let rivik = rivik::new()
+// rivik.map_input(...);
+// rivik.map_input(...);
+// rivik.run(|r| r.new_stage(MainMenu::new());
+
+mod stage;
+mod stage_builder;
+
 pub use stage::*;
 
+use crate::app::stage_builder::StageBuilder;
+use crate::render::Surface;
+use crate::{
+    input::{Action, ActionHandler},
+    render::{RenderState, TimeStamp},
+};
+use std::ops::{Deref, DerefMut};
 use std::{
     collections::HashMap,
     fmt,
     sync::{Arc, Mutex, MutexGuard, RwLock},
     time::Instant,
 };
-
+use winit::window::WindowAttributes;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowId},
 };
+use winit::event_loop::EventLoopBuilder;
 
-use crate::{
-    input::{Action, ActionHandler},
-    render::{RenderState, TimeStamp},
-};
+pub struct ActiveRivik<'a, A: Action> {
+    rivik: &'a mut Rivik<A>,
+    event_loop: &'a ActiveEventLoop,
+}
+
+impl<'a, A: Action> Deref for ActiveRivik<'a, A> {
+    type Target = Rivik<A>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.rivik
+    }
+}
+
+impl<'a, A: Action> DerefMut for ActiveRivik<'a, A> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.rivik
+    }
+}
+
+impl<'a, A: Action> ActiveRivik<'a, A> {
+    pub fn open(&mut self, window: WindowAttributes) -> StageBuilder<A> {
+        let window = Arc::new(self.event_loop.create_window(window).unwrap());
+        StageBuilder {
+            window,
+            rivik: self.rivik,
+            surface: None,
+        }
+    }
+}
 
 pub struct Rivik<A: Action> {
-    init: Option<Box<dyn FnOnce(RivikController<A>)>>,
-    windows: RwLock<HashMap<WindowId, Arc<Window>>>,
-    stages: RwLock<HashMap<WindowId, Arc<Mutex<dyn Stage<A>>>>>,
+    init: Option<Box<dyn FnOnce(&mut ActiveRivik<A>)>>,
+    stages: HashMap<WindowId, EngineStage<A>>,
     input: ActionHandler<A>,
     sim_time: TimeStamp,
     timestep: f32,
@@ -37,34 +77,44 @@ pub struct Rivik<A: Action> {
 }
 
 impl<A: Action> Rivik<A> {
-    pub fn run(init: impl FnOnce(RivikController<A>) + 'static) {
-        let event_loop = EventLoop::new().unwrap();
-        let mut app = Self {
-            init: Some(Box::new(init)),
-            windows: Default::default(),
+    pub fn new() -> Self {
+        Self {
+            init: None,
             stages: Default::default(),
             input: ActionHandler::new(),
             sim_time: TimeStamp::default(),
-            timestep: 1.0 / 1.0,
+            timestep: 1.0 / 20.0,
             prev_frametime: None,
-            render_state: RenderState::new(/*timestep*/ 0.0),
-        };
-        event_loop.run_app(&mut app).unwrap();
-    }
-
-    fn controller<'a>(&'a mut self, event_loop: &'a ActiveEventLoop) -> RivikController<'a, A> {
-        RivikController {
-            rivik: self,
-            event_loop,
+            render_state: RenderState::new(0.0),
         }
     }
 
-    fn stage(&self, id: &WindowId) -> Option<Arc<Mutex<dyn Stage<A>>>> {
-        let stage = {
-            let stages = self.stages.read().unwrap();
-            Arc::clone(stages.get(id)?)
-        };
-        Some(stage)
+    #[cfg(not(target_os = "android"))]
+    pub fn run(stage: impl FnOnce(&mut ActiveRivik<A>) + 'static) {
+        let mut rivik = Rivik::new();
+        let event_loop = EventLoop::new().unwrap();
+        rivik.init = Some(Box::new(stage));
+        event_loop.run_app(&mut rivik).unwrap()
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn run(stage: impl FnOnce(&mut ActiveRivik<A>) + 'static, app: winit::platform::android::activity::AndroidApp) {
+        use winit::platform::android::EventLoopBuilderExtAndroid;
+        let mut rivik = Rivik::new();
+        let event_loop = EventLoopBuilder::default().with_android_app(app).build().unwrap();
+        rivik.init = Some(Box::new(stage));
+        event_loop.run_app(&mut rivik).unwrap()
+    }
+
+    pub fn input(&mut self) -> &mut ActionHandler<A> {
+        &mut self.input
+    }
+
+    fn active<'a>(&'a mut self, event_loop: &'a ActiveEventLoop) -> ActiveRivik<'a, A> {
+        ActiveRivik {
+            rivik: self,
+            event_loop,
+        }
     }
 }
 
@@ -72,7 +122,10 @@ impl<A: Action> ApplicationHandler for Rivik<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         log::info!("Starting Rivik Engine");
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-        (self.init.take().unwrap())(self.controller(event_loop));
+        (self.init.take().unwrap())(&mut self.active(event_loop));
+        for (_id, stage) in &mut self.stages {
+            stage.resume();
+        }
     }
 
     fn window_event(
@@ -90,11 +143,17 @@ impl<A: Action> ApplicationHandler for Rivik<A> {
         // render state (positions mostly) and the previous frame's render state. The renderer
         // SHOULD then interpolate between previous and current states using the timestamps.
 
+        // feed event to egui
+        let mut app_bench = Some(crate::bench::start("app_mgmt"));
+        self.stages
+            .get_mut(&window_id)
+            .unwrap()
+            .raw_window_event(&event);
+
         match &event {
             WindowEvent::CloseRequested => {
-                let _ = self.windows.write().unwrap().remove(&window_id).unwrap();
-                let _ = self.stages.write().unwrap().remove(&window_id).unwrap();
-                if self.stages.read().unwrap().len() == 0 {
+                let _ = self.stages.remove(&window_id).unwrap();
+                if self.stages.len() == 0 {
                     event_loop.exit();
                 }
             }
@@ -104,39 +163,34 @@ impl<A: Action> ApplicationHandler for Rivik<A> {
                 let dt = (time - p_time).as_secs_f32();
                 self.prev_frametime = Some(time);
 
-                log::error!("====== dt: {dt}");
-                log::error!(" - sim_time: \t{}", *self.sim_time);
-                log::error!(" - vis_time: \t{}", self.render_state.timestamp());
+                //log::error!("====== dt: {dt}");
+                //log::error!(" - sim_time: \t{}", *self.sim_time);
+                //log::error!(" - vis_time: \t{}", self.render_state.timestamp());
 
                 let catchup = (*self.sim_time - self.render_state.timestamp()) as f32;
-                log::error!(" - catchup:  \t{}", catchup);
+                //log::error!(" - catchup:  \t{}", catchup);
 
                 if catchup < self.timestep / 2.0 {
-                    log::error!("=== TICK");
-                    self.stage(&window_id)
-                        .unwrap()
-                        .lock()
+                    app_bench.take();
+                    self.stages
+                        .get_mut(&window_id)
                         .unwrap()
                         .tick(&mut self.input, self.timestep);
+                    app_bench = Some(crate::bench::start("app_mgmt"));
                     self.sim_time.tick(self.timestep);
-                    log::error!(" - sim_time: \t{}", *self.sim_time);
                 }
 
                 // assume a range vis_time..sim_time mapped to 0..1
                 // we need to figure out where vis_time+dt is
                 let s = dt as f64 / (*self.sim_time - self.render_state.timestamp());
 
-                self.stage(&window_id).unwrap().lock().unwrap().render(s as f32);
+                app_bench.take();
+                self.stages
+                    .get_mut(&window_id)
+                    .unwrap()
+                    .render(s as f32, &mut self.input);
+                app_bench = Some(crate::bench::start("app_mgmt"));
                 self.render_state.tick(dt);
-                log::error!(" - vis_time: \t{}", self.render_state.timestamp());
-
-                // Try to render as fast as possible
-                self.windows
-                    .read()
-                    .unwrap()
-                    .get(&window_id)
-                    .unwrap()
-                    .request_redraw();
             }
             _ => {}
         }

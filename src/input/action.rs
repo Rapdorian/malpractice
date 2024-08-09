@@ -5,7 +5,6 @@ pub struct ActionState {
 }
 
 impl ActionState {
-
     pub fn get(&self) -> f32 {
         self.value
     }
@@ -16,15 +15,15 @@ impl ActionState {
     }
 
     pub fn normalize(&mut self) {
-       self.value = self.inner.max(0.0).min(1.0);
+        self.value = self.inner.max(0.0).min(1.0);
     }
 
-    pub fn press(&mut self){
-       self.inner += 1.0;
-       self.normalize();
+    pub fn press(&mut self) {
+        self.inner += 1.0;
+        self.normalize();
     }
 
-    pub fn release(&mut self){
+    pub fn release(&mut self) {
         self.inner -= 1.0;
 
         // self.inner should never be negative.
@@ -34,9 +33,7 @@ impl ActionState {
         self.inner = self.inner.max(0.0);
     }
 
-    pub fn tick(&mut self){
+    pub fn tick(&mut self) {
         self.normalize();
     }
 }
-
-

@@ -1,6 +1,5 @@
 use std::ops;
 
-
 #[derive(Default, Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub struct TimeStamp(f64);
 
