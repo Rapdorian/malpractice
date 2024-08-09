@@ -2,7 +2,12 @@ use std::mem;
 use std::sync::Arc;
 
 use glam::Vec3;
-use rivik::{ActiveRivik, components::Transform, input::{ActionHandler, InputType}, render::Surface, Rivik, Stage};
+use rivik::{
+    components::Transform,
+    input::{ActionHandler, InputType},
+    render::Surface,
+    ActiveRivik, Rivik, Stage,
+};
 use winit::window::WindowAttributes;
 use winit::{keyboard::KeyCode, window::Window};
 
@@ -16,7 +21,9 @@ struct App {
 
 impl Stage<GameEvent> for App {
     fn render(&self, surface: &Surface, dt: f32) {
-        let frame = surface.next_frame(dt);
+        let Some(frame) = surface.next_frame(dt) else {
+            return;
+        };
 
         let _bench = rivik::bench::start("render-logic");
         frame
@@ -57,28 +64,28 @@ pub enum GameEvent {
 }
 
 pub fn run(rivik: &mut ActiveRivik<GameEvent>) {
-        rivik
-            .input()
-            .map(InputType::Key(KeyCode::Space), GameEvent::Foo);
+    rivik
+        .input()
+        .map(InputType::Key(KeyCode::Space), GameEvent::Foo);
 
-        let mut stage = rivik.open(WindowAttributes::default());
+    let mut stage = rivik.open(WindowAttributes::default());
 
-        let mut world = hecs::World::new();
+    let mut world = hecs::World::new();
 
-        /*world.spawn((
-            stage.surface().load_sprite("sprite.toml", "foo"),
-            Transform::default().with_pos(60.0, 0.0, 0.0),
-            0.0_f32,
-            GameEvent::Foo,
-        ));*/
+    /*world.spawn((
+        stage.surface().load_sprite("sprite.toml", "foo"),
+        Transform::default().with_pos(60.0, 0.0, 0.0),
+        0.0_f32,
+        GameEvent::Foo,
+    ));*/
 
-        stage.build(App {
-            world,
-            camera: Transform::default()
-                .with_scale(0.003, 0.003, 0.003)
-                .with_pos(-0.2, -0.2, 0.0),
-            speed: 1.0,
-            radius: 200.0,
-            delay: 1.0,
-        });
+    stage.build(App {
+        world,
+        camera: Transform::default()
+            .with_scale(0.003, 0.003, 0.003)
+            .with_pos(-0.2, -0.2, 0.0),
+        speed: 1.0,
+        radius: 200.0,
+        delay: 1.0,
+    });
 }

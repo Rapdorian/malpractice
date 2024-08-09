@@ -1,12 +1,17 @@
 // Create a rendering context with WGPU
 // some of these cane be made static to simplify
 
+use super::{RenderState, Vertex};
+use crate::assets;
+use crate::assets::AssetManager;
 use egui_winit::egui::{ClippedPrimitive, FullOutput, TexturesDelta};
 use image::{EncodableLayout, GenericImageView};
 use once_cell::sync::{self, Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
+use std::io::Read;
 use std::{
     collections::HashMap,
+    mem,
     sync::{Arc, Mutex, Weak},
 };
 use wgpu::{
@@ -14,18 +19,17 @@ use wgpu::{
     BufferUsages, TextureUsages,
 };
 
-use super::{RenderState, Vertex};
-
 pub struct Surface {
     pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub instance: wgpu::Instance,
-    pub surface: wgpu::Surface<'static>,
+    pub surface: Option<wgpu::Surface<'static>>,
     pub state: Mutex<RenderState<u32, mint::Vector3<f32>>>,
     pub format: wgpu::TextureFormat,
     pub ui_output: Option<(Vec<ClippedPrimitive>, TexturesDelta)>,
     pub dimensions: [u32; 2],
+    pub win: Arc<winit::window::Window>,
 }
 
 pub struct Texture {
@@ -97,7 +101,21 @@ impl Surface {
     }
 
     pub fn texture_format(&self) -> wgpu::TextureFormat {
-        self.surface.get_capabilities(&self.adapter).formats[0]
+        self.surface
+            .as_ref()
+            .unwrap()
+            .get_capabilities(&self.adapter)
+            .formats[0]
+    }
+
+    pub fn resume(&mut self) {
+        log::warn!("Recreating surface");
+        self.surface = Some(self.instance.create_surface(Arc::clone(&self.win)).unwrap());
+        self.reconfig();
+    }
+
+    pub fn suspend(&mut self) {
+        self.surface.take();
     }
 
     pub fn sampler(&self) -> Arc<wgpu::Sampler> {
@@ -112,8 +130,13 @@ impl Surface {
     }
 
     pub fn load_sprite(&self, path: &str, fragment: &str) -> Sprite {
-        let sprite_map: SpriteMap =
-            toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut file = String::new();
+        assets::platform::os_asset_manager()
+            .open(path)
+            .unwrap()
+            .read_to_string(&mut file)
+            .unwrap();
+        let sprite_map: SpriteMap = toml::from_str(&file).unwrap();
 
         let atlas = self.load_texture(&sprite_map.path);
         let sprite_rect = sprite_map.sprites.get(fragment).unwrap();
@@ -175,6 +198,22 @@ impl Surface {
         mesh
     }
 
+    pub fn reconfig(&mut self) {
+        let Some(surface) = &self.surface else {
+            log::warn!("Attempted to reconfigure destroyed surface");
+            return;
+        };
+        let size = self.win.inner_size();
+        let config = wgpu::SurfaceConfiguration {
+            present_mode: wgpu::PresentMode::AutoVsync,
+            ..surface
+                .get_default_config(&self.adapter, size.width, size.height)
+                .unwrap()
+        };
+        surface.configure(&self.device, &config);
+        self.dimensions = [size.width, size.height];
+    }
+
     /// Loads a texture from a file.
     ///
     /// This method will deduplicate successive loads from the same file
@@ -188,7 +227,8 @@ impl Surface {
 
         //TODO: Call out to an asset manager that can load packed assets for the raw file data
         //TODO: Error handling and logging
-        let img = image::open(path).unwrap();
+        let file = assets::platform::os_asset_manager().read_bytes(path).unwrap();
+        let img = image::load_from_memory(&file).unwrap();
         let bytes = img.to_rgba8();
         let dimensions = img.dimensions();
 
@@ -262,12 +302,13 @@ impl Surface {
                 adapter,
                 device,
                 queue,
-                surface,
+                surface: Some(surface),
                 instance,
                 state: Mutex::new(RenderState::new(0.0)),
                 format,
                 ui_output: None,
                 dimensions: [size.width, size.height],
+                win: win.clone(),
             }
         })
     }

@@ -43,11 +43,22 @@ impl<A: Action> EngineStage<A> {
     }
 
     pub fn resume(&mut self) {
-        if self.surface.is_none() {
-            self.surface = Some(Surface::new(&self.window));
-        } else {
-            log::warn!("Rendering context created before `resume` event");
-            log::error!("Invalidating/Recreating rendering context not supported, skipping");
+        match &mut self.surface {
+            None => self.surface = Some(Surface::new(&self.window)),
+            Some(surf) => surf.resume(),
+        }
+    }
+
+    pub fn resize(&mut self) {
+        if let Some(surf) = self.surface.as_mut() {
+            surf.reconfig();
+        }
+    }
+
+    pub fn suspend(&mut self) {
+        match &mut self.surface {
+            None => {}
+            Some(surf) => surf.suspend(),
         }
     }
 
@@ -71,7 +82,10 @@ impl<A: Action> EngineStage<A> {
         let mut output = self.egui.egui_ctx().run(input, |ctx| user.ui(ctx, handler));
         self.egui
             .handle_platform_output(&self.window, output.platform_output);
-        let primitives = self.egui.egui_ctx().tessellate(output.shapes, output.pixels_per_point);
+        let primitives = self
+            .egui
+            .egui_ctx()
+            .tessellate(output.shapes, output.pixels_per_point);
         self.surface
             .as_mut()
             .unwrap()

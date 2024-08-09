@@ -2,15 +2,21 @@ pub mod app;
 
 #[cfg(target_os = "android")]
 mod android {
-    pub use winit::platform::android::activity::AndroidApp;
-    use rivik::Rivik;
     use crate::app;
+    use log::LevelFilter;
+    use rivik::Rivik;
+    pub use winit::platform::android::activity::AndroidApp;
 
     #[no_mangle]
     fn android_main(app: AndroidApp) {
-        env_logger::init();
-        Rivik::run(|rivik|{
-            app::run(rivik);
-        }, app);
+        android_logger::init_once(
+            android_logger::Config::default().with_max_level(LevelFilter::Warn),
+        );
+        Rivik::run(
+            |rivik| {
+                app::run(rivik);
+            },
+            app,
+        );
     }
 }

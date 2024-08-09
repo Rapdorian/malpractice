@@ -9,20 +9,23 @@ pub use context::*;
 use egui_wgpu::ScreenDescriptor;
 use egui_winit::egui::{ClippedPrimitive, FullOutput, TexturesDelta};
 use once_cell::sync::{Lazy, OnceCell};
+use std::time::Instant;
 use std::{
     collections::HashMap,
     mem,
     sync::{Arc, Mutex},
 };
-use std::time::Instant;
 use tracing_subscriber::fmt::format::Full;
 pub use vertex::*;
-use wgpu::{util::{DeviceExt, RenderEncoder}, BufferUsages, ShaderStages, StoreOp, PresentationTimestamp};
+use wgpu::{
+    util::{DeviceExt, RenderEncoder},
+    BufferUsages, PresentationTimestamp, ShaderStages, StoreOp,
+};
 
+use crate::bench::{start, Span};
+use crate::components::Transform;
 pub use state::*;
 pub use timestamp::*;
-use crate::bench::{Span, start};
-use crate::components::Transform;
 //pub use components::*;
 
 pub struct Frame<'a> {
@@ -34,7 +37,7 @@ pub struct Frame<'a> {
 }
 
 impl Surface {
-    pub fn next_frame(&self, interp: f32) -> Frame {
+    pub fn next_frame(&self, interp: f32) -> Option<Frame> {
         static FPS_TIMER: Lazy<Mutex<f32>> = Lazy::new(|| Mutex::new(1.0));
         static PREV_FRAME: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
 
@@ -47,7 +50,7 @@ impl Surface {
             crate::bench::raw_section("avg time", *timer as u128);
         }
 
-        let output = self.surface.get_current_texture().unwrap();
+        let output = self.surface.as_ref()?.get_current_texture().unwrap();
         *PREV_FRAME.lock().unwrap() = Some(Instant::now());
 
         let view = output
@@ -62,14 +65,13 @@ impl Surface {
 
         // record the time for the start of this frame
 
-
-        Frame {
+        Some(Frame {
             surface: self,
             output,
             output_view: view,
             encoder,
             format: self.format,
-        }
+        })
     }
 }
 

@@ -27,6 +27,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, RwLock},
     time::Instant,
 };
+use winit::event_loop::EventLoopBuilder;
 use winit::window::WindowAttributes;
 use winit::{
     application::ApplicationHandler,
@@ -34,7 +35,7 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowId},
 };
-use winit::event_loop::EventLoopBuilder;
+use crate::assets::android::ANDROID_APP;
 
 pub struct ActiveRivik<'a, A: Action> {
     rivik: &'a mut Rivik<A>,
@@ -98,10 +99,17 @@ impl<A: Action> Rivik<A> {
     }
 
     #[cfg(target_os = "android")]
-    pub fn run(stage: impl FnOnce(&mut ActiveRivik<A>) + 'static, app: winit::platform::android::activity::AndroidApp) {
+    pub fn run(
+        stage: impl FnOnce(&mut ActiveRivik<A>) + 'static,
+        app: winit::platform::android::activity::AndroidApp,
+    ) {
         use winit::platform::android::EventLoopBuilderExtAndroid;
+        ANDROID_APP.set(app.clone()).unwrap();
         let mut rivik = Rivik::new();
-        let event_loop = EventLoopBuilder::default().with_android_app(app).build().unwrap();
+        let event_loop = EventLoopBuilder::default()
+            .with_android_app(app)
+            .build()
+            .unwrap();
         rivik.init = Some(Box::new(stage));
         event_loop.run_app(&mut rivik).unwrap()
     }
@@ -122,9 +130,17 @@ impl<A: Action> ApplicationHandler for Rivik<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         log::info!("Starting Rivik Engine");
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-        (self.init.take().unwrap())(&mut self.active(event_loop));
+        if let Some(init) = self.init.take() {
+            (init)(&mut self.active(event_loop));
+        }
         for (_id, stage) in &mut self.stages {
             stage.resume();
+        }
+    }
+
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        for (_id, stage) in &mut self.stages {
+            stage.suspend();
         }
     }
 
@@ -156,6 +172,9 @@ impl<A: Action> ApplicationHandler for Rivik<A> {
                 if self.stages.len() == 0 {
                     event_loop.exit();
                 }
+            }
+            WindowEvent::Resized(_) => {
+                self.stages.get_mut(&window_id).unwrap().resize();
             }
             WindowEvent::RedrawRequested => {
                 let time = Instant::now();

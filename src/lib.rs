@@ -10,6 +10,14 @@ pub mod components;
 pub mod input;
 pub mod render;
 
+pub mod assets {
+    mod asset_manager;
+    pub use asset_manager::*;
+    pub(crate) mod fs;
+    pub(crate) mod android;
+    pub mod platform;
+}
+
 pub use app::*;
 //pub mod window;
 
