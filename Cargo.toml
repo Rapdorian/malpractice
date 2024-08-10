@@ -6,6 +6,7 @@ version = "0.1.0"
 
 [workspace.dependencies]
 egui = {git = "https://github.com/emilk/egui" }
+winit = { version = "0.30.2", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-csd-adwaita", "android-native-activity"]}
 
 [package]
 name = "rivik"
@@ -16,9 +17,9 @@ edition = "2021"
 
 [dependencies]
 mint = "0.5.9"
-winit = { version = "0.30.2", features = ["android-native-activity"]}
 once_cell = "1.19.0"
 async-executor = "1.8.0"
+winit = { workspace = true }
 async-io = "2.3.0"
 futures = "0.3.30"
 bytemuck = { version = "1.14.1", features = ["derive"] }
@@ -35,7 +36,7 @@ image = "0.24.8"
 tobj = { version = "4.0.2", features = ["log"] }
 serde = { version = "1.0.204", features = ["derive"] }
 devtimer = "4.0.1"
-egui-winit = { git = "https://github.com/emilk/egui" }
+egui-winit = { git = "https://github.com/emilk/egui", default-features = false }
 egui-wgpu = { git = "https://github.com/emilk/egui" }
 egui = { workspace = true }
 dirs = "5.0.1"
