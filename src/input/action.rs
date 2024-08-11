@@ -15,7 +15,7 @@ impl ActionState {
     }
 
     pub fn normalize(&mut self) {
-        self.value = self.inner.max(0.0).min(1.0);
+        self.value = self.inner.clamp(0.0, 1.0);
     }
 
     pub fn press(&mut self) {

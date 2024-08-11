@@ -15,7 +15,6 @@ mod stage_builder;
 pub use stage::*;
 
 use crate::app::stage_builder::StageBuilder;
-use crate::render::Surface;
 use crate::{
     input::{Action, ActionHandler},
     render::{RenderState, TimeStamp},
@@ -23,17 +22,15 @@ use crate::{
 use std::ops::{Deref, DerefMut};
 use std::{
     collections::HashMap,
-    fmt,
-    sync::{Arc, Mutex, MutexGuard, RwLock},
+    sync::Arc,
     time::Instant,
 };
-use winit::event_loop::EventLoopBuilder;
 use winit::window::WindowAttributes;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop},
-    window::{Window, WindowId},
+    window::WindowId,
 };
 
 
@@ -47,7 +44,7 @@ impl<'a, A: Action> Deref for ActiveRivik<'a, A> {
     type Target = Rivik<A>;
 
     fn deref(&self) -> &Self::Target {
-        &self.rivik
+        self.rivik
     }
 }
 
@@ -69,6 +66,7 @@ impl<'a, A: Action> ActiveRivik<'a, A> {
 }
 
 pub struct Rivik<A: Action> {
+    #[allow(clippy::type_complexity)]
     init: Option<Box<dyn FnOnce(&mut ActiveRivik<A>)>>,
     stages: HashMap<WindowId, EngineStage<A>>,
     input: ActionHandler<A>,
@@ -76,6 +74,12 @@ pub struct Rivik<A: Action> {
     timestep: f32,
     prev_frametime: Option<Instant>,
     render_state: RenderState<u32, ()>,
+}
+
+impl<A: Action> Default for Rivik<A> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<A: Action> Rivik<A> {
@@ -136,13 +140,13 @@ impl<A: Action> ApplicationHandler for Rivik<A> {
         if let Some(init) = self.init.take() {
             (init)(&mut self.active(event_loop));
         }
-        for (_id, stage) in &mut self.stages {
+        for stage in self.stages.values_mut() {
             stage.resume();
         }
     }
 
-    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
-        for (_id, stage) in &mut self.stages {
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        for stage in self.stages.values_mut() {
             stage.suspend();
         }
     }
@@ -172,7 +176,7 @@ impl<A: Action> ApplicationHandler for Rivik<A> {
         match &event {
             WindowEvent::CloseRequested => {
                 let _ = self.stages.remove(&window_id).unwrap();
-                if self.stages.len() == 0 {
+                if self.stages.is_empty() {
                     event_loop.exit();
                 }
             }
@@ -181,7 +185,7 @@ impl<A: Action> ApplicationHandler for Rivik<A> {
             }
             WindowEvent::RedrawRequested => {
                 let time = Instant::now();
-                let p_time = self.prev_frametime.unwrap_or_else(|| Instant::now());
+                let p_time = self.prev_frametime.unwrap_or_else(Instant::now);
                 let dt = (time - p_time).as_secs_f32();
                 self.prev_frametime = Some(time);
 
@@ -217,5 +221,7 @@ impl<A: Action> ApplicationHandler for Rivik<A> {
             _ => {}
         }
         self.input.handle_winit(&event);
+        // finish timing app_mgmt
+        app_bench.take();
     }
 }
