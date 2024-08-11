@@ -46,19 +46,19 @@ impl Transform {
     }
 }
 
-impl Into<mint::ColumnMatrix4<f32>> for Transform {
-    fn into(self) -> mint::ColumnMatrix4<f32> {
-        let mat: glam::Mat4 = self.into();
+impl From<Transform> for mint::ColumnMatrix4<f32> {
+    fn from(val: Transform) -> Self {
+        let mat: glam::Mat4 = val.into();
         mat.into()
     }
 }
 
-impl Into<glam::Mat4> for Transform {
-    fn into(self) -> glam::Mat4 {
+impl From<Transform> for glam::Mat4 {
+    fn from(val: Transform) -> Self {
         glam::Mat4::from_scale_rotation_translation(
-            self.scale.into(),
-            self.rotation.into(),
-            self.position.into(),
+            val.scale.into(),
+            val.rotation.into(),
+            val.position.into(),
         )
     }
 }

@@ -49,7 +49,7 @@ impl<A: Action> ActionHandler<A> {
         self.events
             .iter()
             .filter(|(_, a)| **a == action)
-            .map(|(input, _)| input.clone())
+            .map(|(input, _)| *input)
             .collect()
     }
 
@@ -85,7 +85,7 @@ impl<A: Action> ActionHandler<A> {
             let action = self
                 .actions
                 .entry(action.clone())
-                .or_insert(ActionState::default());
+                .or_default();
 
             match input.ty {
                 InputType::Key(_) | InputType::MouseButton(_) => {

@@ -111,14 +111,14 @@ impl<'a> Frame<'a> {
     pub fn draw_egui(self, ui: &(Vec<ClippedPrimitive>, TexturesDelta)) -> Self {
         let queue = &self.surface.queue;
         let desc = ScreenDescriptor {
-            size_in_pixels: self.surface.dimensions.clone(),
+            size_in_pixels: self.surface.dimensions,
             pixels_per_point: 1.0,
         };
         self.draw(|device, enc, out, format, _state| {
             static UI_RENDER: OnceCell<Mutex<egui_wgpu::Renderer>> = OnceCell::new();
             let mut ui_render = UI_RENDER
                 .get_or_init(|| {
-                    Mutex::new(egui_wgpu::Renderer::new(&device, format, None, 1, false))
+                    Mutex::new(egui_wgpu::Renderer::new(device, format, None, 1, false))
                 })
                 .lock()
                 .unwrap();
@@ -304,7 +304,7 @@ impl<'a> Frame<'a> {
                 // uv_size: vec2
                 // texture: u32
                 // handle render state interpolation
-                let mut transform = transform.clone();
+                let mut transform = *transform;
                 transform.position = {
                     let mut state = state.lock().unwrap();
                     if state.get(&id).is_none() {
