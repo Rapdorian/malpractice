@@ -3,7 +3,6 @@ use std::env::current_exe;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
-use crate::assets;
 use crate::assets::fs::FsManager;
 
 fn fs_data_manager() -> FsManager {

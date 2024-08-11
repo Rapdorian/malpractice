@@ -1,17 +1,14 @@
 use crate::input::{Action, ActionHandler};
 use crate::render::Surface;
-use egui_winit::egui;
-use egui_winit::egui::CentralPanel;
-use std::mem;
 use std::sync::{Arc, Mutex};
 use winit::event::WindowEvent;
-use winit::window::{Window, WindowAttributes, WindowId};
+use winit::window::{Window, WindowId};
 
 pub trait Stage<A: Action> {
-    fn render(&self, surface: &Surface, interp: f32) {}
-    fn tick(&mut self, input: &mut ActionHandler<A>, step: f32) {}
+    fn render(&self, _surface: &Surface, _interp: f32) {}
+    fn tick(&mut self, _input: &mut ActionHandler<A>, _step: f32) {}
 
-    fn ui(&mut self, egui: &egui_winit::egui::Context, input: &mut ActionHandler<A>) {}
+    fn ui(&mut self, _egui: &egui_winit::egui::Context, _input: &mut ActionHandler<A>) {}
 }
 
 /// Track engine state that is per-stage
@@ -27,7 +24,6 @@ impl<A: Action> EngineStage<A> {
         let egui = {
             let egui = egui_winit::egui::Context::default();
             let id = egui.viewport_id();
-            let ppp = egui.pixels_per_point();
             egui_winit::State::new(egui, id, &window, None, None, None)
         };
         Self {
@@ -62,13 +58,6 @@ impl<A: Action> EngineStage<A> {
         }
     }
 
-    fn surface(&mut self) -> &Surface {
-        if self.surface.is_none() {
-            self.surface = Some(Surface::new(&self.window));
-        }
-        self.surface.as_ref().unwrap()
-    }
-
     pub fn raw_window_event(&mut self, e: &WindowEvent) {
         let _ = self.egui.on_window_event(&self.window, e);
     }
@@ -79,7 +68,7 @@ impl<A: Action> EngineStage<A> {
     pub fn render(&mut self, interp: f32, handler: &mut ActionHandler<A>) {
         let mut user = self.user.lock().unwrap();
         let input = self.egui.take_egui_input(&self.window);
-        let mut output = self.egui.egui_ctx().run(input, |ctx| user.ui(ctx, handler));
+        let output = self.egui.egui_ctx().run(input, |ctx| user.ui(ctx, handler));
         self.egui
             .handle_platform_output(&self.window, output.platform_output);
         let primitives = self

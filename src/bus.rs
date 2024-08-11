@@ -12,6 +12,7 @@ impl<T> Subscription<T> {
         self.queue.lock().unwrap().push(event);
     }
 
+    #[allow(unused)]
     fn next_event(&self) -> Option<T> {
         self.queue.lock().unwrap().pop()
     }

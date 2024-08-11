@@ -8,15 +8,8 @@ use once_cell::sync::Lazy;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Mutex;
 use std::time::Instant;
-
-struct Timer {
-    started: Option<Instant>,
-    total: u128,
-    frame_count: u128,
-}
 
 #[derive(Clone)]
 pub struct Section {
@@ -99,9 +92,8 @@ pub fn egui_report(ui: &mut egui::Ui) {
     let (response, painter) = ui.allocate_painter(Vec2::splat(300.0), Sense::hover());
     let rect = response.rect;
     let ll = rect.left_bottom();
-    let width = rect.width();
 
-    let reserve_legend = ((*PREV_LEGEND_LEN.lock().unwrap() as f32 / 3.0 + 1.0) * 14.0);
+    let reserve_legend = (*PREV_LEGEND_LEN.lock().unwrap() as f32 / 3.0 + 1.0) * 14.0;
     let effective_height = rect.height() - reserve_legend;
     let y_scale = effective_height / peak;
     let x_scale = rect.width() / GRAPH_CAP as f32;

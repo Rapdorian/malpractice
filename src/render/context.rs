@@ -4,14 +4,13 @@
 use super::{RenderState, Vertex};
 use crate::assets;
 use crate::assets::AssetManager;
-use egui_winit::egui::{ClippedPrimitive, FullOutput, TexturesDelta};
+use egui_winit::egui::{ClippedPrimitive, TexturesDelta};
 use image::{EncodableLayout, GenericImageView};
-use once_cell::sync::{self, Lazy, OnceCell};
+use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::{
     collections::HashMap,
-    mem,
     sync::{Arc, Mutex, Weak},
 };
 use wgpu::{
@@ -51,8 +50,8 @@ impl std::fmt::Debug for Texture {
 }
 
 pub struct Mesh {
-    pub(crate) label: String,
     pub(crate) verts: wgpu::Buffer,
+    #[allow(unused)]
     pub(crate) idx: wgpu::Buffer,
 }
 
@@ -187,7 +186,6 @@ impl Surface {
                 usage: BufferUsages::INDEX,
             });
         let mesh = Arc::new(Mesh {
-            label: label.to_string(),
             verts,
             idx,
         });

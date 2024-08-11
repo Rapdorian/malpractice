@@ -7,7 +7,7 @@ mod vertex;
 
 pub use context::*;
 use egui_wgpu::ScreenDescriptor;
-use egui_winit::egui::{ClippedPrimitive, FullOutput, TexturesDelta};
+use egui_winit::egui::{ClippedPrimitive, TexturesDelta};
 use once_cell::sync::{Lazy, OnceCell};
 use std::time::Instant;
 use std::{
@@ -15,14 +15,12 @@ use std::{
     mem,
     sync::{Arc, Mutex},
 };
-use tracing_subscriber::fmt::format::Full;
 pub use vertex::*;
 use wgpu::{
-    util::{DeviceExt, RenderEncoder},
-    BufferUsages, PresentationTimestamp, ShaderStages, StoreOp,
+    util::DeviceExt,
+    BufferUsages, StoreOp,
 };
 
-use crate::bench::{start, Span};
 use crate::components::Transform;
 pub use state::*;
 pub use timestamp::*;
@@ -110,13 +108,13 @@ impl<'a> Frame<'a> {
         self.output.present();
     }
 
-    pub fn draw_egui(mut self, ui: &(Vec<ClippedPrimitive>, TexturesDelta)) -> Self {
+    pub fn draw_egui(self, ui: &(Vec<ClippedPrimitive>, TexturesDelta)) -> Self {
         let queue = &self.surface.queue;
         let desc = ScreenDescriptor {
             size_in_pixels: self.surface.dimensions.clone(),
             pixels_per_point: 1.0,
         };
-        self.draw(|device, enc, out, format, state| {
+        self.draw(|device, enc, out, format, _state| {
             static UI_RENDER: OnceCell<Mutex<egui_wgpu::Renderer>> = OnceCell::new();
             let mut ui_render = UI_RENDER
                 .get_or_init(|| {
@@ -164,7 +162,7 @@ impl<'a> Frame<'a> {
                 wgpu::RenderPipeline,
                 wgpu::BindGroupLayout,
             )> = OnceCell::new();
-            let (pipeline_layout, pipeline, bg_layout) = PIPELINE.get_or_init(|| {
+            let (_pipeline_layout, pipeline, bg_layout) = PIPELINE.get_or_init(|| {
                 log::info!("Initializing sprite pipeline");
                 let shader = load_shader(
                     device,
@@ -291,9 +289,7 @@ impl<'a> Frame<'a> {
             // create instance buffers
             let mut textures = Vec::new();
             let mut texture_lookup = HashMap::new();
-            let mut instance_count = 0;
             for (id, (sprite, transform)) in sprites {
-                instance_count += 1;
                 let t_id = sprite.texture.texture.global_id();
                 let idx = *texture_lookup.entry(t_id).or_insert_with(|| {
                     textures.push((Arc::clone(&sprite.texture), Vec::new()));
@@ -408,7 +404,7 @@ impl<'a> Frame<'a> {
             // declare static pipeline info
             static PIPELINE: OnceCell<(wgpu::PipelineLayout, wgpu::RenderPipeline)> =
                 OnceCell::new();
-            let (pipeline_layout, pipeline) = PIPELINE.get_or_init(|| {
+            let (_pipeline_layout, pipeline) = PIPELINE.get_or_init(|| {
                 log::info!("Initializing mesh pipeline");
                 let shader = load_shader(
                     device,

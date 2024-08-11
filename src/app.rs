@@ -15,7 +15,6 @@ mod stage_builder;
 pub use stage::*;
 
 use crate::app::stage_builder::StageBuilder;
-use crate::render::Surface;
 use crate::{
     input::{Action, ActionHandler},
     render::{RenderState, TimeStamp},
@@ -23,17 +22,15 @@ use crate::{
 use std::ops::{Deref, DerefMut};
 use std::{
     collections::HashMap,
-    fmt,
-    sync::{Arc, Mutex, MutexGuard, RwLock},
+    sync::Arc,
     time::Instant,
 };
-use winit::event_loop::EventLoopBuilder;
 use winit::window::WindowAttributes;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop},
-    window::{Window, WindowId},
+    window::WindowId,
 };
 
 
@@ -141,7 +138,7 @@ impl<A: Action> ApplicationHandler for Rivik<A> {
         }
     }
 
-    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         for (_id, stage) in &mut self.stages {
             stage.suspend();
         }
@@ -217,5 +214,7 @@ impl<A: Action> ApplicationHandler for Rivik<A> {
             _ => {}
         }
         self.input.handle_winit(&event);
+        // finish timing app_mgmt
+        app_bench.take();
     }
 }
